@@ -13,6 +13,39 @@ Adaptive L7 Resilience Proxy & Chaos Testbed written in Go.
 - **Priority-Aware Load Shedding:** Protects critical traffic SLOs (`X-Traffic-Priority: critical | high | low`) by shedding low-priority load when global concurrency or tail latency crosses thresholds.
 - **Chaos Worker & Observability:** Upstream worker service with live `/chaos` fault injection (latency spikes, jitter, HTTP error bursts) and Prometheus/Grafana telemetry.
 
+## System Architecture
+
+```mermaid
+flowchart LR
+    Client["Clients / Load Generator"]
+    Chaos["Chaos Controller"]
+
+    subgraph Proxy["avry-proxy (Go)"]
+        direction LR
+        RL["Rate Limiter"] --> LS["Priority Shedder"] --> LB["P2C + EWMA Balancer"] --> CB["Circuit Breakers"]
+    end
+
+    Redis[("Redis (Lua Token Bucket)")]
+
+    subgraph Upstreams["Upstream Workers"]
+        W1["worker-1 (Healthy: 5ms)"]
+        W2["worker-2 (Healthy: 5ms)"]
+        W3["worker-3 (Grey Failure: 450ms)"]
+    end
+
+    subgraph Telemetry["Observability"]
+        Prom["Prometheus"] --> Graf["Grafana"]
+    end
+
+    Client -->|"HTTP + X-Traffic-Priority"| RL
+    RL <-->|"Atomic Quota (Local Fallback)"| Redis
+    CB -->|"Fast Route"| W1
+    CB -->|"Fast Route"| W2
+    CB -.->|"Deprioritized / Tripped"| W3
+    Chaos -.->|"POST /chaos"| W3
+    Proxy -.->|"/metrics"| Prom
+```
+
 ## Quick Start
 
 ```bash
