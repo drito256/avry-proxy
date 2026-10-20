@@ -1,0 +1,28 @@
+# binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+avry-proxy
+backend-worker
+bench
+
+# test binary, built with `go test -c`
+*.test
+
+# output of the go coverage tool
+*.out
+coverage.html
+
+# go workspace file
+go.work
+go.work.sum
+
+# local environment & ide
+.env
+.idea/
+.vscode/
+*.swp
+*~
