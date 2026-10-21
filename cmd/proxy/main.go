@@ -8,17 +8,46 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/drito256/avry-proxy/internal/balancer"
 	"github.com/drito256/avry-proxy/internal/proxy"
+	"github.com/drito256/avry-proxy/internal/resilience"
 )
 
 func envOrDefault(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
+	}
+	return fallback
+}
+
+func envBoolOrDefault(key string, fallback bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if parsed, err := strconv.ParseBool(val); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func envInt64OrDefault(key string, fallback int64) int64 {
+	if val := os.Getenv(key); val != "" {
+		if parsed, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func envFloat64OrDefault(key string, fallback float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		if parsed, err := strconv.ParseFloat(val, 64); err == nil {
+			return parsed
+		}
 	}
 	return fallback
 }
@@ -67,6 +96,16 @@ func main() {
 	backendsRaw := flag.String("backends", envOrDefault("PROXY_BACKENDS", defaultBackends), "Comma-separated list of upstream backends (id=url or url)")
 	strategy := flag.String("strategy", envOrDefault("PROXY_STRATEGY", "p2c-ewma"), "Load balancing strategy: p2c-ewma or round-robin")
 	upstreamTimeout := flag.Duration("upstream-timeout", 2*time.Second, "Per-request upstream timeout")
+
+	enableCircuitBreaker := flag.Bool("circuit-breaker", envBoolOrDefault("PROXY_CIRCUIT_BREAKER", true), "Enable per-node circuit breakers")
+	enableShedder := flag.Bool("load-shedding", envBoolOrDefault("PROXY_LOAD_SHEDDING", true), "Enable priority-aware adaptive load shedding")
+	maxConcurrency := flag.Int64("max-concurrency", envInt64OrDefault("PROXY_MAX_CONCURRENCY", 256), "Global maximum in-flight requests before shedding")
+
+	enableRateLimit := flag.Bool("rate-limit", envBoolOrDefault("PROXY_RATE_LIMIT", true), "Enable token-bucket rate limiting")
+	rateLimitRPS := flag.Float64("rate-limit-rps", envFloat64OrDefault("PROXY_RATE_LIMIT_RPS", 10000), "Per-client token refill rate per second")
+	rateLimitBurst := flag.Float64("rate-limit-burst", envFloat64OrDefault("PROXY_RATE_LIMIT_BURST", 2500), "Per-client token bucket burst capacity")
+	redisAddr := flag.String("redis-addr", envOrDefault("PROXY_REDIS_ADDR", ""), "Optional Redis address (host:port) for distributed Lua token bucket")
+
 	flag.Parse()
 
 	backends, err := parseBackends(*backendsRaw)
@@ -81,9 +120,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	var breakers *resilience.BreakerRegistry
+	if *enableCircuitBreaker {
+		breakers = resilience.NewBreakerRegistry(resilience.DefaultCircuitBreakerConfig())
+	}
+
+	var shedder *resilience.Shedder
+	if *enableShedder {
+		shedCfg := resilience.DefaultShedderConfig()
+		shedCfg.MaxConcurrency = *maxConcurrency
+		shedder = resilience.NewShedder(shedCfg)
+	}
+
+	var rateLimiter *resilience.RateLimiter
+	if *enableRateLimit {
+		rlCfg := resilience.DefaultRateLimiterConfig()
+		rlCfg.Rate = *rateLimitRPS
+		rlCfg.Burst = *rateLimitBurst
+		rlCfg.RedisAddr = *redisAddr
+		rateLimiter = resilience.NewRateLimiter(rlCfg)
+	}
+
 	proxyServer := proxy.NewServer(proxy.Config{
 		Balancer:        lb,
 		UpstreamTimeout: *upstreamTimeout,
+		RateLimiter:     rateLimiter,
+		Shedder:         shedder,
+		Breakers:        breakers,
 	})
 
 	httpServer := &http.Server{
@@ -97,6 +160,9 @@ func main() {
 			"listen", *listenAddr,
 			"strategy", lb.Name(),
 			"backends_count", len(backends),
+			"circuit_breaker", *enableCircuitBreaker,
+			"load_shedding", *enableShedder,
+			"rate_limit", *enableRateLimit,
 			"upstream_timeout", upstreamTimeout.String(),
 		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
