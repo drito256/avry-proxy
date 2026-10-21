@@ -5,9 +5,9 @@ bin/
 *.dll
 *.so
 *.dylib
-avry-proxy
-backend-worker
-bench
+/avry-proxy
+/backend-worker
+/bench
 
 # test binary, built with `go test -c`
 *.test
