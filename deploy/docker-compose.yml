@@ -1,0 +1,105 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: avry-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  worker-1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: avry-worker-1
+    entrypoint: ["/usr/local/bin/backend-worker"]
+    environment:
+      WORKER_ID: "worker-1"
+      WORKER_LISTEN: ":8081"
+      WORKER_BASE_LATENCY_MS: "5"
+    ports:
+      - "8081:8081"
+
+  worker-2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: avry-worker-2
+    entrypoint: ["/usr/local/bin/backend-worker"]
+    environment:
+      WORKER_ID: "worker-2"
+      WORKER_LISTEN: ":8081"
+      WORKER_BASE_LATENCY_MS: "5"
+    ports:
+      - "8082:8081"
+
+  worker-3:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: avry-worker-3
+    entrypoint: ["/usr/local/bin/backend-worker"]
+    environment:
+      WORKER_ID: "worker-3"
+      WORKER_LISTEN: ":8081"
+      WORKER_BASE_LATENCY_MS: "5"
+    ports:
+      - "8083:8081"
+
+  worker-4:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: avry-worker-4
+    entrypoint: ["/usr/local/bin/backend-worker"]
+    environment:
+      WORKER_ID: "worker-4"
+      WORKER_LISTEN: ":8081"
+      WORKER_BASE_LATENCY_MS: "5"
+    ports:
+      - "8084:8081"
+
+  avry-proxy:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: avry-proxy
+    environment:
+      PROXY_LISTEN: ":8080"
+      PROXY_STRATEGY: "${PROXY_STRATEGY:-p2c-ewma}"
+      PROXY_BACKENDS: "worker-1=http://worker-1:8081,worker-2=http://worker-2:8081,worker-3=http://worker-3:8081,worker-4=http://worker-4:8081"
+      PROXY_REDIS_ADDR: "redis:6379"
+      PROXY_CIRCUIT_BREAKER: "${PROXY_CIRCUIT_BREAKER:-true}"
+      PROXY_LOAD_SHEDDING: "${PROXY_LOAD_SHEDDING:-true}"
+      PROXY_RATE_LIMIT: "${PROXY_RATE_LIMIT:-true}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - worker-1
+      - worker-2
+      - worker-3
+      - worker-4
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: avry-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - avry-proxy
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: avry-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

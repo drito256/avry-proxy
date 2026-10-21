@@ -1,0 +1,69 @@
+{
+  "title": "avry-proxy — Adaptive L7 Resilience & Chaos Telemetry",
+  "uid": "avry-proxy-main",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1s",
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Latency Quantiles (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(avry_request_duration_seconds_bucket[10s])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(avry_request_duration_seconds_bucket[10s])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(avry_request_duration_seconds_bucket[10s])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Per-Backend EWMA Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "avry_backend_ewma_latency_ms",
+          "legendFormat": "{{backend}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Throughput by Backend & Action (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(avry_requests_total[10s])) by (backend, action)",
+          "legendFormat": "{{backend}} ({{action}})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Circuit Breaker State (0=Closed, 1=Half-Open, 2=Open)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "avry_circuit_breaker_state",
+          "legendFormat": "{{backend}}"
+        }
+      ]
+    }
+  ]
+}
