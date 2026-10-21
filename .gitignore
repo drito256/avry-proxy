@@ -24,5 +24,8 @@ go.work.sum
 .env
 .idea/
 .vscode/
+.obsidian/
 *.swp
 *~
+temp.md
+
